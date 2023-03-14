@@ -10,34 +10,35 @@ import (
 )
 
 var (
-	NatsNonJetstreamUrl = "127.0.0.1:4230"
-	NatsJetstreamUrl    = "127.0.0.1:4231"
-	NatsSubject         = "test-stream"
+	TestNatsNonJetstreamUrl = "127.0.0.1:4230"
+	TestNatsSubject         = "test-stream"
+	TestNatsToken           = "some-very-long-charset-and-loaded-from-config-to-be-safe"
 )
 
 func init() {
-	fmt.Println(`expects NATS server to be running
-* in non-jetstream mode at 127.0.0.1:4230 | cmd: "nats-server -p 4230"
-* in jetstream mode at 127.0.0.1:4231     | cmd: "nats-server -js -p 4231"`)
+	fmt.Printf(`expects NATS server to be running
+* in non-jetstream mode at 127.0.0.1:4230 | cmd: "nats-server -p 4230 -auth %s"
+* in jetstream mode at 127.0.0.1:4231     | cmd: "nats-server -js -p 4231"
+	`, TestNatsToken)
 }
 
 func TestGolNatsConnectAndClose(t *testing.T) {
 	nc := GolNats{
-		URL:       NatsNonJetstreamUrl,
+		URL:       TestNatsNonJetstreamUrl,
 		ConnName:  "test-connection",
-		ConnToken: "some-very-long-charset-and-loaded-from-config-to-be-safe",
-		Subject:   NatsSubject,
+		ConnToken: TestNatsToken,
+		Subject:   TestNatsSubject,
 	}
 	nc.Connect()
 	if nc.Connection == nil {
-		t.Fatalf("FAILED to connect NATS server at: %s", NatsNonJetstreamUrl)
+		t.Fatalf("FAILED to connect NATS server at: %s", TestNatsNonJetstreamUrl)
 	}
 
 	nc.Close()
 }
 
 func TestGolNatsRequestAndReply(t *testing.T) {
-	nc := ConnectNats(NatsNonJetstreamUrl, NatsSubject)
+	nc := ConnectNats(TestNatsNonJetstreamUrl, TestNatsSubject, TestNatsToken)
 
 	var result string
 	assignToResult := func(m *nats.Msg) {
@@ -63,7 +64,7 @@ func TestGolNatsRequestAndReply(t *testing.T) {
 }
 
 func TestGolNatsReqReplyAfterUnsubscribe(t *testing.T) {
-	nc := ConnectNats(NatsNonJetstreamUrl, NatsSubject)
+	nc := ConnectNats(TestNatsNonJetstreamUrl, TestNatsSubject, TestNatsToken)
 
 	var result = "SHOULDN'T MATTER"
 	assignToResult := func(m *nats.Msg) {
@@ -85,8 +86,8 @@ func TestGolNatsReqReplyAfterUnsubscribe(t *testing.T) {
 }
 
 func TestPublishAndSubscriber(t *testing.T) {
-	ncP := ConnectNats(NatsNonJetstreamUrl, NatsSubject)
-	ncS := ConnectNats(NatsNonJetstreamUrl, NatsSubject)
+	ncP := ConnectNats(TestNatsNonJetstreamUrl, TestNatsSubject, TestNatsToken)
+	ncS := ConnectNats(TestNatsNonJetstreamUrl, TestNatsSubject, TestNatsToken)
 	subscriberCounter := 0
 
 	var msgBytes = []byte("FOUR")
@@ -99,11 +100,11 @@ func TestPublishAndSubscriber(t *testing.T) {
 	}
 
 	if errS := ncS.QueueSubscriber("testQ", checkMsg); errS != nil {
-		t.Errorf("FAILED to call QueueSubscriber at %s | %s", NatsSubject, errS.Error())
+		t.Errorf("FAILED to call QueueSubscriber at %s | %s", TestNatsSubject, errS.Error())
 	}
 	time.Sleep(10 * time.Millisecond) // to give conn time for subscriber
 	if errP := ncP.Publish(msgBytes); errP != nil {
-		t.Errorf("FAILED to call Publish at %s | %s", NatsSubject, errP.Error())
+		t.Errorf("FAILED to call Publish at %s | %s", TestNatsSubject, errP.Error())
 	}
 
 	time.Sleep(10 * time.Millisecond) // to give conn time for subscriber
@@ -111,11 +112,11 @@ func TestPublishAndSubscriber(t *testing.T) {
 	time.Sleep(10 * time.Millisecond) // to give conn time for subscriber
 
 	if errS := ncS.SubscriberAsync(checkMsg); errS != nil {
-		t.Errorf("FAILED to call QueueSubscriber at %s | %s", NatsSubject, errS.Error())
+		t.Errorf("FAILED to call QueueSubscriber at %s | %s", TestNatsSubject, errS.Error())
 	}
 	time.Sleep(10 * time.Millisecond) // to give conn time for subscriber
 	if errP := ncP.Publish(msgBytes); errP != nil {
-		t.Errorf("FAILED to call Publish at %s | %s", NatsSubject, errP.Error())
+		t.Errorf("FAILED to call Publish at %s | %s", TestNatsSubject, errP.Error())
 	}
 
 	time.Sleep(10 * time.Millisecond) // to give conn time for subscriber

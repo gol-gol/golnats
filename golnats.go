@@ -35,11 +35,12 @@ type GolNats struct {
 	Timeout      time.Duration
 }
 
-func ConnectNats(natsURLs string, subject string) GolNats {
+func ConnectNats(natsURLs, subject, authToken string) GolNats {
 	nc := GolNats{
-		URL:      natsURLs,
-		ConnName: fmt.Sprintf("connect::%s", subject),
-		Subject:  subject,
+		URL:       natsURLs,
+		ConnName:  fmt.Sprintf("connect::%s", subject),
+		Subject:   subject,
+		ConnToken: authToken,
 	}
 	nc.Connect()
 	return nc
