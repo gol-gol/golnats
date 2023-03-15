@@ -7,32 +7,33 @@
 
 ### Public Functions
 
-#### Common
-
-* `(*GolNats) Connect() error`
-* `(*GolNats) Close()`
-* `(*GolNats) Unsubscribe()`
-* `Log(*nats.Msg)`
-
 #### Simple Flow, not Jetstream
 
-* `ConnectNats(natsURLs string, subject string) GolNats`
+* `(*GolNats) Connect() (err error)`
+* `(*GolNats) Close()`
+* `(*GolNats) Unsubscribe()`
 * `(*GolNats) Request(reqData []byte) (result []byte, err error)`
-* `(*GolNats) Reply(evalMsg func(*nats.Msg)) error`
-* `(*GolNats) Publish([]byte) error`
-* `(*GolNats) PublishMessage(reply string, data []byte) error`
-* `(*GolNats) QueueSubscriber(qName string, evalMsg func(*nats.Msg)) error`
-* `(*GolNats) SubscriberAsync(func(*nats.Msg)) error`
-* `(*GolNats) SubscriberSync(func(*nats.Msg), time.Duration) error`
-* `(*GolNats) SubscriberChan(func(*nats.Msg)) error`
+* `(*GolNats) Reply(evalMsg func(*nats.Msg)) (err error)`
+* `(*GolNats) Publish(msg []byte) (err error)`
+* `(*GolNats) PublishMessage(reply string, data []byte) (err error)`
+* `(*GolNats) QueueSubscriber(qName string, evalMsg func(*nats.Msg)) (err error)`
+* `(*GolNats) SubscriberAsync(evalMsg func(*nats.Msg)) (err error)`
+* `(*GolNats) SubscriberSync(evalMsg func(*nats.Msg), timeout time.Duration) (err error)`
+* `(*GolNats) SubscriberChan(evalMsg func(*nats.Msg)) (err error)`
 * `(*GolNats) Log()`
+* `ConnectNats(natsURLs, subject, authToken string) GolNats`
+* `Log(m *nats.Msg)`
 
 #### Jetstream Flow
 
-* `ConnectNatsJS(natsURLs string, stream string, subjects []string) GolNats`
-*  `(*GolNats) AddDurableConsumerJS(stream, consumerID string) error`
-*  `(*GolNats) PublishJS(subject string, msg []byte) error`
-*  `(*GolNats) SubscriberJS(subject string, funv(*nats.Msg)) error`
-*  `(*GolNats) LogJS()`
+
+* `(*JSGolNats) Connect(ctx context.Context, natsURLs, authToken string) error`
+* `(*JSGolNats) Close()`
+* `(*JSGolNats) AddDurableConsumerJS(ctx context.Context, consumerID string) error`
+* `(*JSGolNats) PublishJS(ctx context.Context, subject string, msg []byte) error`
+* `(*JSGolNats) SubscriberJS(ctx context.Context, subject string, evalMsg func(*nats.Msg)) error`
+* `(*JSGolNats) PullSubscriberJS(ctx context.Context, subject, qName string, evalMsg func(*nats.Msg), breakMsg func(*nats.Msg) bool) error`
+* `(*JSGolNats) LogJS()`
+
 
 ---

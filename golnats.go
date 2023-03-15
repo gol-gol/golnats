@@ -19,14 +19,10 @@ var (
 )
 
 type GolNats struct {
-	URL       string // this would support CSV for cluster as well
-	ConnName  string // for monitoring stats
-	ConnToken string // for using user:password, make them part of URLs as "myname:password@127.0.0.1;4222"
-
-	Connection  *nats.Conn
-	IsJetStream bool
-	JS          nats.JetStreamContext
-	stream      *nats.StreamInfo
+	URL        string // this would support CSV for cluster as well
+	ConnName   string // for monitoring stats
+	ConnToken  string // for using user:password, make them part of URLs as "myname:password@127.0.0.1;4222"
+	Connection *nats.Conn
 
 	Subscription *nats.Subscription
 	Channel      chan *nats.Msg

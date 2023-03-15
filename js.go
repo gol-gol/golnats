@@ -2,6 +2,8 @@ package golnats
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -11,72 +13,132 @@ import (
 
 /*
 go-nats facade for pattern-based JetStream usage.
+
+TODO:
+https://gist.github.com/wallyqs/b01ba613341170b4442acbffcaea0a81
+https://github.com/nats-io/nats.go/issues/712#issuecomment-835431721
 */
 
 var (
 	PubAsyncMaxPending = 256
+	//https://docs.nats.io/nats-concepts/core-nats/queue
+	DefaultRetentionPolicy = nats.LimitsPolicy // nats.WorkQueuePolicy
+	//https://docs.nats.io/nats-concepts/jetstream/consumers
+	DefaultAckPolicy       = nats.AckExplicitPolicy
+	DefaultAckWaitMilliSec = 60 * time.Second
+	DefaultDeliverPolicy   = nats.DeliverAllPolicy
+	DefaultMaxDeliver      = 5
 )
 
-func ConnectNatsJS(natsURLs, stream string, subjects []string, authToken string) (GolNats, error) {
-	nc := GolNats{
-		URL:         natsURLs,
-		ConnName:    fmt.Sprintf("js::%s", stream),
-		IsJetStream: true,
-		ConnToken:   authToken,
-	}
-	nc.Connect()
-
-	var errJS error
-	nc.JS, errJS = nc.Connection.JetStream(nats.PublishAsyncMaxPending(PubAsyncMaxPending))
-	if errJS != nil {
-		return nc, errJS
-	}
-
-	if len(subjects) == 0 {
-		subjects = []string{fmt.Sprintf("%s.>", stream)} // to inherit namespace
-	}
-	log.Printf("Creating/Adding\n\tstream: %s\n\tsubjects: %v", stream, subjects)
-	_, errStream := nc.JS.AddStream(&nats.StreamConfig{
-		Name:     stream,
-		Subjects: subjects,
-	})
-	return nc, errStream
+type JSGolNats struct {
+	GolNats        GolNats
+	JS             nats.JetStreamContext
+	Stream         string
+	Subjects       []string
+	Retention      nats.RetentionPolicy
+	AckPolicy      nats.AckPolicy
+	AckWait        time.Duration
+	DeliveryPolicy nats.DeliverPolicy
+	MaxDeliver     int
 }
 
-func (nc *GolNats) AddDurableConsumerJS(stream, consumerID string) error {
-	_, err := nc.JS.AddConsumer(stream, &nats.ConsumerConfig{
-		Durable: consumerID,
+func (jnc *JSGolNats) Connect(ctx context.Context, natsURLs, authToken string) error {
+	jnc.GolNats = GolNats{
+		URL:       natsURLs,
+		ConnName:  fmt.Sprintf("js::%s", jnc.Stream),
+		ConnToken: authToken,
+	}
+	if errNats := jnc.GolNats.Connect(); errNats != nil {
+		return errNats
+	}
 
-		AckPolicy:     nats.AckExplicitPolicy,
-		DeliverPolicy: nats.DeliverAllPolicy,
+	var errJS error
+	jnc.JS, errJS = jnc.GolNats.Connection.JetStream(nats.PublishAsyncMaxPending(PubAsyncMaxPending))
+	if errJS != nil {
+		return errJS
+	}
+
+	if len(jnc.Subjects) == 0 {
+		jnc.Subjects = []string{fmt.Sprintf("%s.>", jnc.Stream)} // to inherit namespace
+		log.Println("Setting Subjects to default:", jnc.Subjects)
+	}
+	log.Printf("Creating/Adding\n\tstream: %s\n\tsubjects: %v", jnc.Stream, jnc.Subjects)
+	_, errStream := jnc.JS.AddStream(&nats.StreamConfig{
+		Name:      jnc.Stream,
+		Subjects:  jnc.Subjects,
+		Retention: jnc.Retention,
+	}, nats.Context(ctx))
+	return errStream
+}
+
+func (jnc *JSGolNats) AddDurableConsumerJS(ctx context.Context, consumerID string) error {
+	_, err := jnc.JS.AddConsumer(jnc.Stream, &nats.ConsumerConfig{
+		Durable:       consumerID,
+		AckPolicy:     jnc.AckPolicy,
+		AckWait:       jnc.AckWait,
+		DeliverPolicy: jnc.DeliveryPolicy,
+		MaxDeliver:    jnc.MaxDeliver,
 	})
 	return err
 }
 
-func (nc *GolNats) PublishJS(subject string, msg []byte) error {
-	_, errPub := nc.JS.Publish(subject, msg)
+func (jnc *JSGolNats) PublishJS(ctx context.Context, subject string, msg []byte) error {
+	_, errPub := jnc.JS.Publish(subject, msg, nats.Context(ctx))
 	return errPub
 }
 
-func (nc *GolNats) SubscriberJS(subject string, evalMsg func(*nats.Msg)) error {
-	_, err := nc.JS.Subscribe(subject, func(m *nats.Msg) {
+func (jnc *JSGolNats) SubscriberJS(ctx context.Context, subject string, evalMsg func(*nats.Msg)) error {
+	_, err := jnc.JS.Subscribe(subject, func(m *nats.Msg) {
 		m.InProgress()
 		evalMsg(m)
-	}, nats.OrderedConsumer())
+	}, nats.OrderedConsumer(), nats.Context(ctx))
 
 	return err
 }
 
-func (nc *GolNats) LogJS() {
+func (jnc *JSGolNats) PullSubscriberJS(ctx context.Context, subject, qName string, evalMsg func(*nats.Msg), breakMsg func(*nats.Msg) bool) error {
+	subscription, errSub := jnc.JS.PullSubscribe(subject, qName)
+	if errSub != nil {
+		return errSub
+	}
+	for {
+		msg, err := subscription.Fetch(1, nats.Context(ctx))
+		if err != nil {
+			log.Printf("[ERROR] Could not fetch msg: %v\n%v\n", msg, err)
+			if errors.Is(err, context.DeadlineExceeded) {
+				break
+			}
+			continue
+		}
+		if breakMsg(msg[0]) {
+			msg[0].Ack()
+			break
+		}
+		msg[0].InProgress()
+		evalMsg(msg[0])
+		err = msg[0].Ack()
+		if err != nil {
+			log.Printf("[WARN] Could not ack msg: %s\n%v\n", msg[0].Data, err)
+		}
+	}
+	return nil
+}
+
+func (jnc *JSGolNats) Close() {
+	jnc.GolNats.Close()
+}
+
+func (jnc *JSGolNats) LogJS() {
 	fmt.Println("Streams:")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	for info := range nc.JS.StreamsInfo(nats.Context(ctx)) {
-		fmt.Println("\t*", info.Config.Name)
+	for info := range jnc.JS.StreamsInfo(nats.Context(ctx)) {
+		b, _ := json.MarshalIndent(info.State, "", " ")
+		fmt.Println("\t*", info.Config.Name, ":", string(b))
 	}
 
 	fmt.Println("Consumers:")
-	for info := range nc.JS.ConsumersInfo("FOO", nats.MaxWait(9*time.Second)) {
+	for info := range jnc.JS.ConsumersInfo("FOO", nats.MaxWait(9*time.Second)) {
 		fmt.Println("\t*", info.Name)
 	}
 }
